@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>SARS帖子时间分布</title>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <style>
+        .line {
+            fill: none;
+            stroke: steelblue;
+            stroke-width: 2;
+        }
+        .axis-label {
+            font-size: 12px;
+        }
+        .dot {
+            fill: steelblue;
+        }
+        .dot:hover {
+            fill: red;
+            r: 5;
+        }
+        .tooltip {
+            position: absolute;
+            background-color: white;
+            border: 1px solid #ddd;
+            padding: 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            pointer-events: none;
+        }
+    </style>
+</head>
+<body>
+    <h2 style="text-align: center;">SARS相关帖子的时间分布</h2>
+    <div id="chart"></div>
+
+    <script>
+        // 设置图表尺寸和边距
+        const margin = {top: 20, right: 30, bottom: 60, left: 60};
+        const width = 800 - margin.left - margin.right;
+        const height = 400 - margin.top - margin.bottom;
+
+        // 创建SVG容器
+        const svg = d3.select("#chart")
+            .append("svg")
+            .attr("width", width + margin.left + margin.right)
+            .attr("height", height + margin.top + margin.bottom)
+            .append("g")
+            .attr("transform", `translate(${margin.left},${margin.top})`);
+
+        // 创建tooltip
+        const tooltip = d3.select("body")
+            .append("div")
+            .attr("class", "tooltip")
+            .style("opacity", 0);
+
+        // 加载数据
+        d3.csv("最终清洗非典.csv").then(function(data) {
+            // 解析时间并按小时统计帖子数量
+            const timeParser = d3.timeParse("%H:%M:%S");
+            const timeCounts = {};
+            
+            data.forEach(d => {
+                const time = timeParser(d.时间);
+                const hour = time.getHours();
+                timeCounts[hour] = (timeCounts[hour] || 0) + 1;
+            });
+
+            // 转换数据格式
+            const chartData = Object.entries(timeCounts).map(([hour, count]) => ({
+                hour: +hour,
+                count: count
+            })).sort((a, b) => a.hour - b.hour);
+
+            // 设置x轴比例尺
+            const x = d3.scaleLinear()
+                .domain([0, 23])
+                .range([0, width]);
+
+            // 设置y轴比例尺
+            const y = d3.scaleLinear()
+                .domain([0, d3.max(chartData, d => d.count)])
+                .range([height, 0]);
+
+            // 创建线条生成器
+            const line = d3.line()
+                .x(d => x(d.hour))
+                .y(d => y(d.count))
+                .curve(d3.curveMonotoneX);
+
+            // 绘制x轴
+            svg.append("g")
+                .attr("transform", `translate(0,${height})`)
+                .call(d3.axisBottom(x).ticks(24))
+                .selectAll("text")
+                .style("text-anchor", "middle");
+
+            // 绘制y轴
+            svg.append("g")
+                .call(d3.axisLeft(y));
+
+            // 添加x轴标签
+            svg.append("text")
+                .attr("class", "axis-label")
+                .attr("x", width/2)
+                .attr("y", height + margin.bottom - 20)
+                .style("text-anchor", "middle")
+                .text("小时 (24小时制)");
+
+            // 添加y轴标签
+            svg.append("text")
+                .attr("class", "axis-label")
+                .attr("transform", "rotate(-90)")
+                .attr("x", -height/2)
+                .attr("y", -margin.left + 20)
+                .style("text-anchor", "middle")
+                .text("帖子数量");
+
+            // 绘制线条
+            svg.append("path")
+                .datum(chartData)
+                .attr("class", "line")
+                .attr("d", line);
+
+            // 添加数据点
+            svg.selectAll(".dot")
+                .data(chartData)
+                .enter()
+                .append("circle")
+                .attr("class", "dot")
+                .attr("cx", d => x(d.hour))
+                .attr("cy", d => y(d.count))
+                .attr("r", 3)
+                .on("mouseover", function(event, d) {
+                    d3.select(this)
+                        .transition()
+                        .duration(200)
+                        .attr("r", 5);
+                        
+                    tooltip.transition()
+                        .duration(200)
+                        .style("opacity", .9);
+                        
+                    tooltip.html(`时间: ${d.hour}:00<br/>帖子数: ${d.count}`)
+                        .style("left", (event.pageX + 10) + "px")
+                        .style("top", (event.pageY - 28) + "px");
+                })
+                .on("mouseout", function() {
+                    d3.select(this)
+                        .transition()
+                        .duration(200)
+                        .attr("r", 3);
+                        
+                    tooltip.transition()
+                        .duration(500)
+                        .style("opacity", 0);
+                });
+        });
+    </script>
+</body>
+</html> 

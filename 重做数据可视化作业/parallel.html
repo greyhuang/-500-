@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>SARS帖子平行坐标图</title>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <style>
+        .tooltip {
+            position: absolute;
+            background-color: white;
+            border: 1px solid #ddd;
+            padding: 10px;
+            border-radius: 5px;
+            font-size: 12px;
+            pointer-events: none;
+            opacity: 0;
+        }
+        .axis .domain {
+            stroke: #000;
+        }
+        .axis text {
+            font-size: 10px;
+        }
+        .line {
+            fill: none;
+            stroke-width: 1.5;
+            opacity: 0.3;
+        }
+        .line:hover {
+            stroke-width: 3;
+            opacity: 0.8;
+        }
+        .legend-item {
+            cursor: pointer;
+        }
+        .legend-item:hover {
+            opacity: 0.7;
+        }
+    </style>
+</head>
+<body>
+    <h2 style="text-align: center;">SARS帖子平行坐标图</h2>
+    <div id="chart"></div>
+
+    <script>
+        // 设置图表尺寸和边距
+        const margin = {top: 50, right: 50, bottom: 30, left: 50};
+        const width = 960 - margin.left - margin.right;
+        const height = 500 - margin.top - margin.bottom;
+
+        // 创建SVG容器
+        const svg = d3.select("#chart")
+            .append("svg")
+            .attr("width", width + margin.left + margin.right)
+            .attr("height", height + margin.top + margin.bottom)
+            .append("g")
+            .attr("transform", `translate(${margin.left},${margin.top})`);
+
+        // 创建tooltip
+        const tooltip = d3.select("body")
+            .append("div")
+            .attr("class", "tooltip");
+
+        // 创建颜色比例尺
+        const color = d3.scaleOrdinal()
+            .domain(['开放性', '神经质', '外向性', '尽责性', '亲和性'])
+            .range(d3.schemeSet3);
+
+        // 加载数据
+        d3.csv("最终清洗非典.csv").then(function(data) {
+            // 过滤掉"不适用"的数据
+            data = data.filter(d => d['大五人格分类'].trim() !== '不适用');
+
+            // 定义要显示的维度
+            const dimensions = [
+                {name: "点击量", type: "number"},
+                {name: "回复数", type: "number"},
+                {name: "时间", type: "time"},
+                {name: "大五人格分类", type: "category"}
+            ];
+
+            // 创建每个维度的比例尺
+            const y = {};
+            dimensions.forEach(dim => {
+                if (dim.type === "number") {
+                    y[dim.name] = d3.scaleLinear()
+                        .domain(d3.extent(data, d => +d[dim.name]))
+                        .range([height, 0]);
+                } else if (dim.type === "time") {
+                    const timeParser = d3.timeParse("%H:%M:%S");
+                    y[dim.name] = d3.scaleTime()
+                        .domain(d3.extent(data, d => timeParser(d[dim.name])))
+                        .range([height, 0]);
+                } else if (dim.type === "category") {
+                    const categories = Array.from(new Set(data.map(d => d[dim.name].trim())));
+                    y[dim.name] = d3.scalePoint()
+                        .domain(categories)
+                        .range([height, 0]);
+                }
+            });
+
+            // 创建x轴比例尺
+            const x = d3.scalePoint()
+                .range([0, width])
+                .domain(dimensions.map(d => d.name));
+
+            // 绘制坐标轴
+            dimensions.forEach(dim => {
+                const axis = d3.axisLeft(y[dim.name]);
+                if (dim.type === "time") {
+                    axis.tickFormat(d3.timeFormat("%H:%M"));
+                }
+                
+                svg.append("g")
+                    .attr("class", "axis")
+                    .attr("transform", `translate(${x(dim.name)},0)`)
+                    .call(axis)
+                    .append("text")
+                    .attr("y", -10)
+                    .attr("text-anchor", "middle")
+                    .text(dim.name)
+                    .style("fill", "black");
+            });
+
+            // 创建路径生成器
+            function path(d) {
+                const timeParser = d3.timeParse("%H:%M:%S");
+                return d3.line()(dimensions.map(dim => {
+                    let value = d[dim.name];
+                    if (dim.type === "time") {
+                        value = timeParser(value);
+                    } else if (dim.type === "category") {
+                        value = value.trim();
+                    } else {
+                        value = +value;
+                    }
+                    return [x(dim.name), y[dim.name](value)];
+                }));
+            }
+
+            // 绘制线条
+            svg.selectAll(".line")
+                .data(data)
+                .enter()
+                .append("path")
+                .attr("class", "line")
+                .attr("d", path)
+                .style("stroke", d => color(d['大五人格分类'].trim()))
+                .on("mouseover", function(event, d) {
+                    d3.select(this)
+                        .style("stroke-width", 3)
+                        .style("opacity", 0.8);
+                        
+                    tooltip.transition()
+                        .duration(200)
+                        .style("opacity", .9);
+                    tooltip.html(`标题: ${d.题名}<br/>
+                                人格类型: ${d['大五人格分类']}<br/>
+                                点击量: ${d.点击量}<br/>
+                                回复数: ${d.回复数}<br/>
+                                时间: ${d.时间}`)
+                        .style("left", (event.pageX + 10) + "px")
+                        .style("top", (event.pageY - 28) + "px");
+                })
+                .on("mouseout", function() {
+                    d3.select(this)
+                        .style("stroke-width", 1.5)
+                        .style("opacity", 0.3);
+                        
+                    tooltip.transition()
+                        .duration(500)
+                        .style("opacity", 0);
+                });
+
+            // 添加图例
+            const legend = svg.append("g")
+                .attr("class", "legend")
+                .attr("transform", `translate(${width - 120}, -30)`);
+
+            const personalities = ['开放性', '神经质', '外向性', '尽责性', '亲和性'];
+            
+            personalities.forEach((personality, i) => {
+                const legendRow = legend.append("g")
+                    .attr("class", "legend-item")
+                    .attr("transform", `translate(0, ${i * 20})`);
+                
+                legendRow.append("rect")
+                    .attr("width", 15)
+                    .attr("height", 15)
+                    .attr("fill", color(personality));
+                
+                legendRow.append("text")
+                    .attr("x", 25)
+                    .attr("y", 12)
+                    .text(personality)
+                    .style("font-size", "12px");
+
+                // 添加图例交互
+                legendRow.on("click", function() {
+                    const selected = personality;
+                    const opacity = svg.selectAll(".line")
+                        .filter(d => d['大五人格分类'].trim() === selected)
+                        .style("opacity");
+                    
+                    svg.selectAll(".line")
+                        .filter(d => d['大五��格分类'].trim() === selected)
+                        .style("opacity", opacity === "0.3" ? "0" : "0.3");
+                    
+                    d3.select(this).style("opacity", opacity === "0.3" ? "0.5" : "1");
+                });
+            });
+        });
+    </script>
+</body>
+</html> 

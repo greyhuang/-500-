@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>SARS帖子热力图</title>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <style>
+        .tooltip {
+            position: absolute;
+            background-color: white;
+            border: 1px solid #ddd;
+            padding: 10px;
+            border-radius: 5px;
+            font-size: 12px;
+            pointer-events: none;
+            opacity: 0;
+        }
+        .cell:hover {
+            stroke: #000;
+            stroke-width: 1px;
+        }
+        .axis-label {
+            font-size: 12px;
+        }
+    </style>
+</head>
+<body>
+    <h2 style="text-align: center;">SARS帖子时间-人格分布热力图</h2>
+    <div id="chart"></div>
+
+    <script>
+        // 设置图表尺寸和边距
+        const margin = {top: 50, right: 50, bottom: 70, left: 100};
+        const width = 800 - margin.left - margin.right;
+        const height = 400 - margin.top - margin.bottom;
+
+        // 创建SVG容器
+        const svg = d3.select("#chart")
+            .append("svg")
+            .attr("width", width + margin.left + margin.right)
+            .attr("height", height + margin.top + margin.bottom)
+            .append("g")
+            .attr("transform", `translate(${margin.left},${margin.top})`);
+
+        // 创建tooltip
+        const tooltip = d3.select("body")
+            .append("div")
+            .attr("class", "tooltip");
+
+        // 加载数据
+        d3.csv("最终清洗非典.csv").then(function(data) {
+            // 处理数据
+            const timeParser = d3.timeParse("%H:%M:%S");
+            const personalities = ['开放性', '神经质', '外向性', '尽责性', '亲和性'];
+            const timeGroups = Array.from({length: 8}, (_, i) => i); // 0-7表示每3小时一组
+
+            // 创建热力图数据
+            const heatmapData = [];
+            data.forEach(d => {
+                if (d['大五人格分类'].trim() !== '不适用') {
+                    const time = timeParser(d.时间);
+                    const hour = time.getHours();
+                    const timeGroup = Math.floor(hour / 3);
+                    const personality = d['大五人格分类'].trim();
+                    
+                    const key = `${timeGroup}-${personality}`;
+                    const existingEntry = heatmapData.find(entry => 
+                        entry.timeGroup === timeGroup && entry.personality === personality
+                    );
+                    
+                    if (existingEntry) {
+                        existingEntry.count++;
+                    } else {
+                        heatmapData.push({
+                            timeGroup,
+                            personality,
+                            count: 1
+                        });
+                    }
+                }
+            });
+
+            // 补充缺失的组合（计数为0）
+            timeGroups.forEach(timeGroup => {
+                personalities.forEach(personality => {
+                    const exists = heatmapData.some(d => 
+                        d.timeGroup === timeGroup && d.personality === personality
+                    );
+                    if (!exists) {
+                        heatmapData.push({
+                            timeGroup,
+                            personality,
+                            count: 0
+                        });
+                    }
+                });
+            });
+
+            // 创建比例尺
+            const x = d3.scaleBand()
+                .range([0, width])
+                .domain(timeGroups)
+                .padding(0.05);
+
+            const y = d3.scaleBand()
+                .range([height, 0])
+                .domain(personalities)
+                .padding(0.05);
+
+            // 创建颜色比例尺
+            const maxCount = d3.max(heatmapData, d => d.count);
+            const color = d3.scaleSequential()
+                .interpolator(d3.interpolateYlOrRd)
+                .domain([0, maxCount]);
+
+            // 绘制热力图单元格
+            svg.selectAll("rect")
+                .data(heatmapData)
+                .enter()
+                .append("rect")
+                .attr("class", "cell")
+                .attr("x", d => x(d.timeGroup))
+                .attr("y", d => y(d.personality))
+                .attr("width", x.bandwidth())
+                .attr("height", y.bandwidth())
+                .style("fill", d => color(d.count))
+                .on("mouseover", function(event, d) {
+                    tooltip.transition()
+                        .duration(200)
+                        .style("opacity", .9);
+                    tooltip.html(`时间段: ${d.timeGroup * 3}-${(d.timeGroup + 1) * 3}时<br/>
+                                人格类型: ${d.personality}<br/>
+                                帖子数量: ${d.count}`)
+                        .style("left", (event.pageX + 10) + "px")
+                        .style("top", (event.pageY - 28) + "px");
+                })
+                .on("mouseout", function() {
+                    tooltip.transition()
+                        .duration(500)
+                        .style("opacity", 0);
+                });
+
+            // 添加x轴
+            svg.append("g")
+                .attr("transform", `translate(0,${height})`)
+                .call(d3.axisBottom(x).tickFormat(d => `${d*3}-${(d+1)*3}时`))
+                .selectAll("text")
+                .style("text-anchor", "end")
+                .attr("dx", "-.8em")
+                .attr("dy", ".15em")
+                .attr("transform", "rotate(-45)");
+
+            // 添加y轴
+            svg.append("g")
+                .call(d3.axisLeft(y));
+
+            // 添加x轴标签
+            svg.append("text")
+                .attr("class", "axis-label")
+                .attr("x", width/2)
+                .attr("y", height + margin.bottom - 10)
+                .style("text-anchor", "middle")
+                .text("时间段");
+
+            // 添加y轴标签
+            svg.append("text")
+                .attr("class", "axis-label")
+                .attr("transform", "rotate(-90)")
+                .attr("x", -height/2)
+                .attr("y", -margin.left + 30)
+                .style("text-anchor", "middle")
+                .text("人格类型");
+
+            // 添加图例
+            const legendWidth = 20;
+            const legendHeight = height;
+            const legend = svg.append("g")
+                .attr("transform", `translate(${width + 20}, 0)`);
+
+            const legendScale = d3.scaleSequential()
+                .interpolator(d3.interpolateYlOrRd)
+                .domain([0, maxCount]);
+
+            const legendAxis = d3.axisRight()
+                .scale(d3.scaleLinear().domain([0, maxCount]).range([legendHeight, 0]))
+                .ticks(5);
+
+            // 创建渐变色图例
+            const defs = svg.append("defs");
+            const linearGradient = defs.append("linearGradient")
+                .attr("id", "linear-gradient")
+                .attr("x1", "0%")
+                .attr("y1", "100%")
+                .attr("x2", "0%")
+                .attr("y2", "0%");
+
+            const numberOfStops = 10;
+            Array.from({length: numberOfStops}).forEach((_, i) => {
+                const offset = i / (numberOfStops - 1);
+                linearGradient.append("stop")
+                    .attr("offset", `${offset * 100}%`)
+                    .attr("stop-color", legendScale(offset * maxCount));
+            });
+
+            legend.append("rect")
+                .attr("width", legendWidth)
+                .attr("height", legendHeight)
+                .style("fill", "url(#linear-gradient)");
+
+            legend.append("g")
+                .attr("transform", `translate(${legendWidth}, 0)`)
+                .call(legendAxis);
+
+            // 添加图例标题
+            legend.append("text")
+                .attr("class", "axis-label")
+                .attr("x", legendWidth / 2)
+                .attr("y", -10)
+                .style("text-anchor", "middle")
+                .text("帖子数量");
+        });
+    </script>
+</body>
+</html> 

@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>SARS帖子树状图</title>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <style>
+        .node {
+            stroke: #fff;
+            stroke-width: 1px;
+        }
+        .node:hover {
+            opacity: 0.8;
+            stroke: #000;
+            stroke-width: 2px;
+        }
+        .tooltip {
+            position: absolute;
+            background-color: white;
+            border: 1px solid #ddd;
+            padding: 10px;
+            border-radius: 5px;
+            font-size: 12px;
+            pointer-events: none;
+            opacity: 0;
+        }
+        .node-label {
+            font-size: 10px;
+            fill: white;
+            pointer-events: none;
+        }
+        .parent-label {
+            font-size: 14px;
+            font-weight: bold;
+            fill: white;
+            pointer-events: none;
+        }
+    </style>
+</head>
+<body>
+    <h2 style="text-align: center;">SARS帖子树状图</h2>
+    <div id="chart"></div>
+
+    <script>
+        // 设置图表尺寸
+        const width = 960;
+        const height = 600;
+
+        // 创建SVG容器
+        const svg = d3.select("#chart")
+            .append("svg")
+            .attr("width", width)
+            .attr("height", height);
+
+        // 创建tooltip
+        const tooltip = d3.select("body")
+            .append("div")
+            .attr("class", "tooltip");
+
+        // 创建颜色比例尺
+        const color = d3.scaleOrdinal()
+            .domain(['开放性', '神经质', '外向性', '尽责性', '亲和性'])
+            .range(d3.schemeSet3);
+
+        // 加载数据
+        d3.csv("最终清洗非典.csv").then(function(data) {
+            // 处理数据为层级结构
+            const hierarchyData = {
+                name: "SARS帖子",
+                children: []
+            };
+
+            // 按人格类型分组
+            const groupedData = d3.group(data, d => d['大五人格分类'].trim());
+            
+            groupedData.forEach((posts, personality) => {
+                if (personality !== '不适用') {
+                    const personalityNode = {
+                        name: personality,
+                        children: []
+                    };
+
+                    // 为每个帖子创建节点
+                    posts.forEach(post => {
+                        personalityNode.children.push({
+                            name: post.题名,
+                            value: +post.点击量, // 使用点击量作为大小
+                            replies: +post.回复数,
+                            personality: personality
+                        });
+                    });
+
+                    hierarchyData.children.push(personalityNode);
+                }
+            });
+
+            // 创建层级布局
+            const root = d3.hierarchy(hierarchyData)
+                .sum(d => d.value)
+                .sort((a, b) => b.value - a.value);
+
+            // 创建treemap布局
+            const treemap = d3.treemap()
+                .size([width, height])
+                .paddingTop(28)
+                .paddingRight(7)
+                .paddingInner(3);
+
+            treemap(root);
+
+            // 创建节点
+            const nodes = svg.selectAll("g")
+                .data(root.descendants())
+                .join("g")
+                .attr("transform", d => `translate(${d.x0},${d.y0})`);
+
+            // 为节点添加矩形
+            nodes.append("rect")
+                .attr("class", "node")
+                .attr("width", d => d.x1 - d.x0)
+                .attr("height", d => d.y1 - d.y0)
+                .attr("fill", d => d.depth === 1 ? color(d.data.name) : 
+                                 d.depth === 2 ? d3.color(color(d.parent.data.name)).brighter(0.5) : 
+                                 "#ddd")
+                .on("mouseover", function(event, d) {
+                    if (d.depth === 2) { // 只对叶子节点显示tooltip
+                        tooltip.transition()
+                            .duration(200)
+                            .style("opacity", .9);
+                        tooltip.html(`标题: ${d.data.name}<br/>
+                                    人格类型: ${d.data.personality}<br/>
+                                    点击量: ${d.data.value}<br/>
+                                    回复数: ${d.data.replies}`)
+                            .style("left", (event.pageX + 10) + "px")
+                            .style("top", (event.pageY - 28) + "px");
+                    }
+                })
+                .on("mouseout", function() {
+                    tooltip.transition()
+                        .duration(500)
+                        .style("opacity", 0);
+                });
+
+            // 添加文本标签
+            nodes.append("text")
+                .attr("class", d => d.depth === 1 ? "parent-label" : "node-label")
+                .attr("x", 4)
+                .attr("y", d => d.depth === 1 ? 18 : 13)
+                .text(d => {
+                    if (d.depth === 1) return `${d.data.name} (${d.children.length}帖)`;
+                    if (d.depth === 2) {
+                        const width = d.x1 - d.x0;
+                        const text = d.data.name;
+                        if (width < 50) return ''; // 空间太小不显示文本
+                        return text.length > 10 ? text.substring(0, 10) + '...' : text;
+                    }
+                    return '';
+                });
+
+            // 添加图例
+            const legend = svg.append("g")
+                .attr("class", "legend")
+                .attr("transform", `translate(20,${height - 100})`);
+
+            const personalities = ['开放性', '神经质', '外向性', '尽责性', '亲和性'];
+            
+            personalities.forEach((personality, i) => {
+                const legendRow = legend.append("g")
+                    .attr("transform", `translate(0, ${i * 20})`);
+                
+                legendRow.append("rect")
+                    .attr("width", 15)
+                    .attr("height", 15)
+                    .attr("fill", color(personality));
+                
+                legendRow.append("text")
+                    .attr("x", 25)
+                    .attr("y", 12)
+                    .text(personality);
+            });
+        });
+    </script>
+</body>
+</html>

@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>SARS帖子气泡图</title>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <style>
+        .tooltip {
+            position: absolute;
+            background-color: white;
+            border: 1px solid #ddd;
+            padding: 10px;
+            border-radius: 5px;
+            font-size: 12px;
+            pointer-events: none;
+            opacity: 0;
+        }
+        .bubble {
+            opacity: 0.7;
+        }
+        .bubble:hover {
+            opacity: 1;
+            stroke: #000;
+            stroke-width: 2px;
+        }
+        .axis-label {
+            font-size: 12px;
+        }
+        .legend-item {
+            cursor: pointer;
+        }
+        .legend-item:hover {
+            opacity: 0.7;
+        }
+    </style>
+</head>
+<body>
+    <h2 style="text-align: center;">SARS帖子气泡图</h2>
+    <div id="chart"></div>
+
+    <script>
+        // 设置图表尺寸和边距
+        const margin = {top: 50, right: 150, bottom: 60, left: 60};
+        const width = 960 - margin.left - margin.right;
+        const height = 500 - margin.top - margin.bottom;
+
+        // 创建SVG容器
+        const svg = d3.select("#chart")
+            .append("svg")
+            .attr("width", width + margin.left + margin.right)
+            .attr("height", height + margin.top + margin.bottom)
+            .append("g")
+            .attr("transform", `translate(${margin.left},${margin.top})`);
+
+        // 创建tooltip
+        const tooltip = d3.select("body")
+            .append("div")
+            .attr("class", "tooltip");
+
+        // 创建颜色比例尺
+        const color = d3.scaleOrdinal()
+            .domain(['开放性', '神经质', '外向性', '尽责性', '亲和性'])
+            .range(d3.schemeSet3);
+
+        // 加载数据
+        d3.csv("最终清洗非典.csv").then(function(data) {
+            // 过滤掉"不适用"的数据
+            data = data.filter(d => d['大五人格分类'].trim() !== '不适用');
+
+            // 创建比例尺
+            const x = d3.scaleLinear()
+                .domain([0, d3.max(data, d => +d.点击量)])
+                .range([0, width]);
+
+            const y = d3.scaleLinear()
+                .domain([0, d3.max(data, d => +d.回复数)])
+                .range([height, 0]);
+
+            const size = d3.scaleSqrt()
+                .domain([0, d3.max(data, d => +d.回复数 * +d.点击量)])
+                .range([4, 30]);
+
+            // 添加x轴
+            svg.append("g")
+                .attr("transform", `translate(0,${height})`)
+                .call(d3.axisBottom(x))
+                .append("text")
+                .attr("class", "axis-label")
+                .attr("x", width/2)
+                .attr("y", 40)
+                .style("text-anchor", "middle")
+                .text("点击量");
+
+            // 添加y轴
+            svg.append("g")
+                .call(d3.axisLeft(y))
+                .append("text")
+                .attr("class", "axis-label")
+                .attr("transform", "rotate(-90)")
+                .attr("y", -40)
+                .attr("x", -height/2)
+                .style("text-anchor", "middle")
+                .text("回复数");
+
+            // 创建气泡
+            const bubbles = svg.selectAll(".bubble")
+                .data(data)
+                .enter()
+                .append("circle")
+                .attr("class", "bubble")
+                .attr("cx", d => x(+d.点击量))
+                .attr("cy", d => y(+d.回复数))
+                .attr("r", d => size(+d.回复数 * +d.点击量))
+                .style("fill", d => color(d['大五人格分类'].trim()))
+                .on("mouseover", function(event, d) {
+                    d3.select(this)
+                        .style("opacity", 1)
+                        .style("stroke", "#000")
+                        .style("stroke-width", 2);
+                        
+                    tooltip.transition()
+                        .duration(200)
+                        .style("opacity", .9);
+                    tooltip.html(`标题: ${d.题名}<br/>
+                                人格类型: ${d['大五人格分类']}<br/>
+                                点击量: ${d.点击量}<br/>
+                                回复数: ${d.回复数}<br/>
+                                时间: ${d.时间}`)
+                        .style("left", (event.pageX + 10) + "px")
+                        .style("top", (event.pageY - 28) + "px");
+                })
+                .on("mouseout", function() {
+                    d3.select(this)
+                        .style("opacity", 0.7)
+                        .style("stroke", "none");
+                        
+                    tooltip.transition()
+                        .duration(500)
+                        .style("opacity", 0);
+                });
+
+            // 添加图例
+            const legend = svg.append("g")
+                .attr("class", "legend")
+                .attr("transform", `translate(${width + 20}, 0)`);
+
+            const personalities = ['开放性', '神经质', '外向性', '尽责性', '亲和性'];
+            
+            personalities.forEach((personality, i) => {
+                const legendRow = legend.append("g")
+                    .attr("class", "legend-item")
+                    .attr("transform", `translate(0, ${i * 20})`);
+                
+                legendRow.append("circle")
+                    .attr("r", 7)
+                    .attr("fill", color(personality));
+                
+                legendRow.append("text")
+                    .attr("x", 15)
+                    .attr("y", 5)
+                    .text(personality)
+                    .style("font-size", "12px");
+
+                // 添加图例交互
+                legendRow.on("click", function() {
+                    const selected = personality;
+                    const opacity = bubbles
+                        .filter(d => d['大五人格分类'].trim() === selected)
+                        .style("opacity");
+                    
+                    bubbles
+                        .filter(d => d['大五人格分类'].trim() === selected)
+                        .style("opacity", opacity === "0.7" ? "0" : "0.7");
+                    
+                    d3.select(this).style("opacity", opacity === "0.7" ? "0.5" : "1");
+                });
+            });
+
+            // 添加大小图例
+            const sizeLegend = svg.append("g")
+                .attr("class", "size-legend")
+                .attr("transform", `translate(${width + 20}, ${personalities.length * 20 + 40})`);
+
+            sizeLegend.append("text")
+                .attr("x", 0)
+                .attr("y", -10)
+                .text("气泡大小 = 点击量 × 回复数")
+                .style("font-size", "12px");
+
+            const sizeValues = [1000, 5000, 10000];
+            sizeValues.forEach((value, i) => {
+                const y = i * 40;
+                
+                sizeLegend.append("circle")
+                    .attr("cx", 7)
+                    .attr("cy", y)
+                    .attr("r", size(value))
+                    .style("fill", "none")
+                    .style("stroke", "#666");
+
+                sizeLegend.append("text")
+                    .attr("x", 20)
+                    .attr("y", y + 5)
+                    .text(value)
+                    .style("font-size", "12px");
+            });
+        });
+    </script>
+</body>
+</html> 
